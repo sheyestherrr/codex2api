@@ -325,7 +325,7 @@ func (h *Handler) Responses(c *gin.Context) {
 		var firstTokenMs int
 		var usage *UsageInfo
 		ttftRecorded := false
-		gotCompleted := false  // 是否收到 response.completed
+		gotTerminal := false    // 是否收到 response.completed 或 response.failed
 		deltaCharCount := 0    // 累计 delta 字符数（用于断流时估算 token）
 
 		if isStream {
@@ -362,7 +362,10 @@ func (h *Handler) Responses(c *gin.Context) {
 				// 提取 usage
 				if eventType == "response.completed" {
 					usage = extractUsage(data)
-					gotCompleted = true
+					gotTerminal = true
+				}
+				if eventType == "response.failed" {
+					gotTerminal = true
 				}
 
 				fmt.Fprintf(c.Writer, "data: %s\n\n", data)
@@ -384,11 +387,12 @@ func (h *Handler) Responses(c *gin.Context) {
 				}
 				if eventType == "response.completed" {
 					usage = extractUsage(data)
-					gotCompleted = true
+					gotTerminal = true
 					lastResponseData = data
 					return false
 				}
 				if eventType == "response.failed" {
+					gotTerminal = true
 					lastResponseData = data
 					return false
 				}
@@ -414,7 +418,7 @@ func (h *Handler) Responses(c *gin.Context) {
 		// 断流检测 + token 估算
 		totalDuration := int(time.Since(start).Milliseconds())
 		logStatusCode := 200
-		if !gotCompleted && usage == nil {
+		if !gotTerminal && usage == nil {
 			logStatusCode = 499 // 标记为异常断流
 			log.Printf("流提前断开 (account %d, /v1/responses): 未收到 response.completed, 已转发约 %d 字符", account.ID(), deltaCharCount)
 			if deltaCharCount > 0 {
@@ -571,7 +575,7 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 		var firstTokenMs int
 		var usage *UsageInfo
 		ttftRecorded := false
-		gotCompleted := false  // 是否收到 response.completed
+		gotTerminal := false    // 是否收到 response.completed 或 response.failed
 		deltaCharCount := 0    // 累计 delta 字符数（用于断流时估算 token）
 
 		chunkID := "chatcmpl-" + uuid.New().String()[:8]
@@ -607,7 +611,10 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 				}
 				if eventType == "response.completed" {
 					usage = extractUsage(data)
-					gotCompleted = true
+					gotTerminal = true
+				}
+				if eventType == "response.failed" {
+					gotTerminal = true
 				}
 
 				if chunk != nil {
@@ -637,9 +644,10 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 					fullContent.WriteString(gjson.GetBytes(data, "delta").String())
 				case "response.completed":
 					usage = extractUsage(data)
-					gotCompleted = true
+					gotTerminal = true
 					return false
 				case "response.failed":
+					gotTerminal = true
 					return false
 				}
 				return true
@@ -667,7 +675,7 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 		// 断流检测 + token 估算
 		totalDuration := int(time.Since(start).Milliseconds())
 		logStatusCode := 200
-		if !gotCompleted && usage == nil {
+		if !gotTerminal && usage == nil {
 			logStatusCode = 499 // 标记为异常断流
 			log.Printf("流提前断开 (account %d, /v1/chat/completions): 未收到 response.completed, 已转发约 %d 字符", account.ID(), deltaCharCount)
 			if deltaCharCount > 0 {
