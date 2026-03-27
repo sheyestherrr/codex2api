@@ -32,13 +32,12 @@ func (db *DB) migrateSQLite(ctx context.Context) error {
 			credentials TEXT NOT NULL DEFAULT '{}',
 			proxy_url TEXT DEFAULT '',
 			status TEXT DEFAULT 'active',
+			cooldown_reason TEXT DEFAULT '',
+			cooldown_until TIMESTAMP NULL,
 			error_message TEXT DEFAULT '',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);`,
-		`CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);`,
-		`CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform);`,
-		`CREATE INDEX IF NOT EXISTS idx_accounts_cooldown_until ON accounts(cooldown_until);`,
 		`CREATE TABLE IF NOT EXISTS usage_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			account_id INTEGER DEFAULT 0,
@@ -61,9 +60,6 @@ func (db *DB) migrateSQLite(ctx context.Context) error {
 			cached_tokens INTEGER DEFAULT 0,
 			service_tier TEXT DEFAULT ''
 		);`,
-		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_usage_logs_account_id ON usage_logs(account_id);`,
-		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_status ON usage_logs(created_at, status_code);`,
 		`CREATE TABLE IF NOT EXISTS api_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT DEFAULT '',
@@ -132,6 +128,20 @@ func (db *DB) migrateSQLite(ctx context.Context) error {
 	}
 	for _, column := range columns {
 		if err := db.ensureSQLiteColumn(ctx, column.table, column.name, column.def); err != nil {
+			return err
+		}
+	}
+
+	indexStatements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform);`,
+		`CREATE INDEX IF NOT EXISTS idx_accounts_cooldown_until ON accounts(cooldown_until);`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_account_id ON usage_logs(account_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_status ON usage_logs(created_at, status_code);`,
+	}
+	for _, stmt := range indexStatements {
+		if _, err := db.conn.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}
